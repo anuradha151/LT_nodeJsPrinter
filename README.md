@@ -51,6 +51,22 @@ Ensure the folder `D:\LeafTrail\Reports\Bills` exists and contains the generated
 
 ---
 
+## 🏗️ Build Instructions (Windows)
+
+If you're compiling the project into a Windows executable using [pkg](https://www.npmjs.com/package/pkg), use the following command:
+
+```bash
+npm run build:win
+```
+
+Make sure the `pkg` dependency is installed globally or locally via:
+
+```bash
+npm install -g pkg
+```
+
+---
+
 ## ✅ Heartbeat Check (Verify Server is Running)
 
 To confirm that the NodeJsPrinter server is running, execute the following command in **Command Prompt** or **PowerShell**:

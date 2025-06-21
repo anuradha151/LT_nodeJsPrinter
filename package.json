@@ -1,0 +1,25 @@
+{
+  "name": "nodejsprinter",
+  "version": "1.0.0",
+  "description": "Node-based HTML to PDF printer for LeafTrail",
+  "main": "server.js",
+  "bin": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build:win": "pkg . --targets node18-win-x64 --output dist/nodejsprinter.exe",
+    "build:linux": "pkg . --targets node18-linux-x64 --output dist/nodejsprinter"
+  },
+  "author": "Anuradha Ranasinghe",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "puppeteer": "^24.10.2"
+  },
+  "pkg": {
+    "assets": [".env"],
+    "scripts": ["server.js", "app.js"],
+    "targets": ["node18-win-x64"],
+    "outputPath": "dist"
+  }
+}

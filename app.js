@@ -32,10 +32,12 @@ app.post("/print", async (req, res) => {
 
   let browser;
   try {
-    browser = await puppeteer.launch({
+    const browser = await puppeteer.launch({
       headless: true,
+      executablePath: process.env.CHROME_PATH,
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"]
     });
+
     const page = await browser.newPage();
 
     // Determine default printer (for Linux)

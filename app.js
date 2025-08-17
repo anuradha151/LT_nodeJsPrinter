@@ -9,10 +9,7 @@ const isWindows = os.platform() === "win32";
 const app = express();
 app.use(express.json());
 
-const REPORT_FOLDER_PATH = isWindows
-  ? process.env.REPORT_FOLDER_PATH_WIN
-  : process.env.REPORT_FOLDER_PATH_LINUX;
-
+// Printing libs
 let print, getDefaultPrinter;
 if (isWindows) {
   ({ print } = require("pdf-to-printer"));
@@ -20,7 +17,7 @@ if (isWindows) {
   ({ print, getDefaultPrinter } = require("unix-print"));
 }
 
-app.get("/heartbeat", (req, res) => {
+app.get("/heartbeat", (_req, res) => {
   res.json({ status: "LIVE" });
 });
 
@@ -32,68 +29,108 @@ app.post("/print", async (req, res) => {
 
   let browser;
   try {
-    const browser = await puppeteer.launch({
+    // Use bundled Chromium unless CHROME_PATH is set on Windows
+    const launchOptions = {
       headless: true,
-      executablePath: process.env.CHROME_PATH,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"]
-    });
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-web-security",
+        "--disable-dev-shm-usage",
+      ],
+    };
+    if (isWindows && process.env.CHROME_PATH) {
+      launchOptions.executablePath = process.env.CHROME_PATH;
+    }
 
+    browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
+    await page.emulateMediaType("screen");
 
-    // Determine default printer (for Linux)
-    let defaultPrinter = undefined;
+    // Default printer (Unix optional)
+    let defaultPrinterName;
     if (!isWindows && typeof getDefaultPrinter === "function") {
       try {
         const printerInfo = await getDefaultPrinter();
-        defaultPrinter = printerInfo?.name;
-        console.log("Using default printer (Unix):", defaultPrinter);
-      } catch (e) {
-        console.warn("Could not retrieve default printer:", e.message);
+        defaultPrinterName = printerInfo?.name;
+      } catch {
+        // Omit printer arg -> system default
       }
     }
+    console.log(
+      "Using default printer (Unix):",
+      defaultPrinterName || "(system default)"
+    );
 
-    for (const fileName of files) {
-      const htmlPath = path.join(REPORT_FOLDER_PATH, fileName);
-      const pdfPath = htmlPath.replace(/\.html$/, ".pdf");
+    for (const absolutePath of files) {
+      // We trust the caller: process paths as-is
+      const ext = path.extname(absolutePath).toLowerCase();
 
-      if (!fs.existsSync(htmlPath)) {
-        console.warn(`Missing file: ${htmlPath}`);
+      if (!fs.existsSync(absolutePath)) {
+        console.warn(`Missing file: ${absolutePath}`);
         continue;
       }
 
-      const htmlContent = fs.readFileSync(htmlPath, "utf8");
-      await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+      if (ext === ".pdf") {
+        // Print PDF directly
+        try {
+          if (isWindows) {
+            await print(absolutePath);
+          } else {
+            const options = ["-o fit-to-page", "-o media=A5"];
+            const result = await print(absolutePath, defaultPrinterName, options);
+            console.log("Printed (Unix):", result?.stdout || "Done");
+          }
+          console.log(`Printed: ${absolutePath}`);
+        } catch (err) {
+          console.error(`Failed to print ${absolutePath}:`, err);
+        }
+        continue;
+      }
 
-      await page.pdf({
-        path: pdfPath,
-        format: 'A5',
-        landscape: true,
-        printBackground: true,
-        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
-        preferCSSPageSize: true
-      });
+      if (ext !== ".html") {
+        console.warn(`Skipping unsupported file type (${ext}): ${absolutePath}`);
+        continue;
+      }
 
-      console.log(`PDF created: ${pdfPath}`);
+      // Render HTML -> PDF (same dir, same basename)
+      const pdfPath = absolutePath.replace(/\.html$/i, ".pdf");
 
       try {
+        const htmlContent = fs.readFileSync(absolutePath, "utf8");
+        await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+
+        await page.pdf({
+          path: pdfPath,
+          format: "A5",
+          landscape: true,
+          printBackground: true,
+          margin: { top: "0mm", bottom: "0mm", left: "0mm", right: "0mm" },
+          preferCSSPageSize: true,
+        });
+
+        console.log(`PDF created: ${pdfPath}`);
+
         if (isWindows) {
-          await print(pdfPath); // Implicit default
+          await print(pdfPath);
         } else {
           const options = ["-o fit-to-page", "-o media=A5"];
-          const result = await print(pdfPath, defaultPrinter, options);
-          console.log("Printed (Unix):", result.stdout || "Done");
+          const result = await print(pdfPath, defaultPrinterName, options);
+          console.log("Printed (Unix):", result?.stdout || "Done");
         }
+
         console.log(`Printed: ${pdfPath}`);
-      } catch (printErr) {
-        console.error(`Failed to print ${pdfPath}:`, printErr);
+      } catch (err) {
+        console.error(`Failed to render/print ${absolutePath}:`, err);
       }
     }
 
     await browser.close();
     res.send({ status: "done" });
-
   } catch (error) {
-    if (browser) await browser.close();
+    if (browser) {
+      try { await browser.close(); } catch {}
+    }
     console.error("Failed to print:", error);
     res.status(500).send({ error: "Print failed" });
   }
